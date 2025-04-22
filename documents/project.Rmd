@@ -1,0 +1,476 @@
+---
+title: "Untitled"
+author: "leena"
+date: "2024-04-14"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r}
+# Libraries
+library(arrow)
+library(tidyverse)
+library(readr)
+library(dplyr)
+library(e1071)
+library(caret)
+#install.packages("randomForest")
+library(randomForest)
+library(ggplot2)
+```
+
+
+```{r}
+# Reading the data from URLs
+data_dictionary <- read_csv("https://intro-datascience.s3.us-east-2.amazonaws.com/SC-data/data_dictionary.csv")
+# View(data_dictionary)
+
+weather_data <- read_csv("https://intro-datascience.s3.us-east-2.amazonaws.com/SC-data/weather/2023-weather-data/G4500010.csv")
+# View(weather_data)
+
+static_housedata <- read_parquet("https://intro-datascience.s3.us-east-2.amazonaws.com/SC-data/static_house_info.parquet")
+#View(static_housedata)
+
+energydata <- read_parquet("https://intro-datascience.s3.us-east-2.amazonaws.com/SC-data/2023-houseData/102063.parquet")
+# View(energydata)
+
+```
+
+
+```{r}
+# Filtering out desired counties 
+county_data <- static_housedata[static_housedata$in.county %in% c("G4500130", "G4500030"), ]
+# view(county_data)
+# (county_data$bldg_id)
+#Filtering
+county_data1 <- county_data[(county_data$in.pv_system_size == "None" & 
+                              county_data$in.sqft > 3350) |
+                             county_data$in.pv_system_size != "None", ]
+
+(county_data1$bldg_id)
+```
+
+```{r}
+# Creating an empty list to hold the data frames
+list_energy_data <- list()
+# Defining a vector 'building_id_req' containing the IDs for buildings located in specific counties as listed above
+building_id_req <- c(
+    31728, 43686, 48498, 51221, 79233, 110778, 138003, 165524, 209916, 212280, 221532, 249479, 267992, 273335, 287419, 355918, 362329, 402343, 437629)
+
+# view(building_id_req)
+
+```
+
+```{r}
+# Looping through each building ID from the list
+for (building_id in building_id_req) {
+  # Create the URL to access the building's data
+  url <- paste0("https://intro-datascience.s3.us-east-2.amazonaws.com/SC-data/2023-houseData/", building_id, ".parquet")
+# Send a GET request to fetch data
+  output <- httr::GET(url)
+  # Verify that the GET request was successful
+  if (httr::status_code(output) == 200) {
+    # Convert the content of the response to a raw vector
+    output_new <- httr::content(output, as = "raw")
+   # Convert the raw vector into a Parquet-format dataframe
+    building_numbers <- arrow::read_parquet(output_new)
+   # Assign the building ID to the dataframe
+    building_numbers$bldg_id <- building_id
+    # Add the dataframe to the list of all data frames
+    list_energy_data[[length(list_energy_data) + 1]] <- building_numbers
+  } else {
+    # Print an error message if data fetching fails
+    cat("Failed to fetch data for building ID:", building_id, "\n")
+  }
+} 
+
+# Merge all individual data frames from the list into one comprehensive dataframe
+energy_data <- dplyr::bind_rows(list_energy_data)
+# Print the extracted data
+# view(energy_data)
+```
+
+```{r}
+# Cleaning energy data
+sum(is.na(energy_data)) 
+
+# Omitting NAs
+energy_data <- na.omit(energy_data)
+
+# Checking for NAs
+sum(is.na(energy_data))
+```
+
+```{r}
+
+fetch_and_merge <- function(building_id) {
+  # Create URL for retrieving energy data specific to the building ID
+  energy_data_url <- paste0("https://intro-datascience.s3.us-east-2.amazonaws.com/SC-data/2023-houseData/", building_id, ".parquet")
+  # Load energy data from the URL using Arrow
+  energy_data <- arrow::read_parquet(energy_data_url)
+  # Define URL for accessing weather data
+  weather_data_url <- "https://intro-datascience.s3.us-east-2.amazonaws.com/SC-data/weather/2023-weather-data/G4500570.csv"
+  # Fetch weather data
+  weather_data <- read_csv(weather_data_url)
+  # Append a column to the energy data identifying the building ID
+  energy_data$bldg_id <- building_id
+  # Merge energy data with weather data based on matching time columns
+  merged_data <- merge(energy_data, weather_data, by.x = "time", by.y = "date_time", all.x = TRUE)
+  return(merged_data)
+}
+```
+
+```{r}
+# Apply 'fetch_and_merge' function to each building ID to retrieve and combine data
+merged_data_bldg <- lapply(building_id_req, fetch_and_merge)
+# Concatenate all individual data frames into a single data frame
+merged_data2 <- bind_rows(merged_data_bldg)
+```
+
+```{r}
+# cleaning merged data
+sum(is.na(merged_data2))
+# Omitting the NAs
+merged_data2 <- na.omit(merged_data2)
+# Checking for NAs 
+sum(is.na(merged_data2))
+```
+
+```{r}
+# Load static_house dataset
+static_house <- read_parquet("C:/Users/Leena/Downloads/static_house_info.parquet")
+```
+
+```{r}
+# Creating new columns of energy consumption
+# Kitchen
+merged_data2$out.kitchen_energy_consumption <- merged_data2$out.electricity.range_oven.energy_consumption +
+  merged_data2$out.electricity.dishwasher.energy_consumption +
+  merged_data2$out.electricity.refrigerator.energy_consumption +
+  merged_data2$out.electricity.freezer.energy_consumption +
+  merged_data2$out.natural_gas.range_oven.energy_consumption +
+  merged_data2$out.natural_gas.grill.energy_consumption +
+  merged_data2$out.propane.range_oven.energy_consumption
+# Laundry
+merged_data2$out.laundry.energy_consumption <- merged_data2$out.electricity.clothes_dryer.energy_consumption +
+  merged_data2$out.natural_gas.clothes_dryer.energy_consumption +
+  merged_data2$out.electricity.clothes_washer.energy_consumption +
+  merged_data2$out.propane.clothes_dryer.energy_consumption
+# Heating_cooling
+merged_data2$out.heating_cooling.energy_consumption <- merged_data2$out.electricity.heating_fans_pumps.energy_consumption +
+  merged_data2$out.electricity.heating_hp_bkup.energy_consumption + 
+  merged_data2$out.electricity.heating.energy_consumption +
+  merged_data2$out.electricity.cooling.energy_consumption +
+  merged_data2$out.natural_gas.heating_hp_bkup.energy_consumption +
+  merged_data2$out.propane.heating_hp_bkup.energy_consumption +
+  merged_data2$out.propane.heating.energy_consumption +
+  merged_data2$out.fuel_oil.heating_hp_bkup.energy_consumption +
+  merged_data2$out.fuel_oil.heating.energy_consumption +
+  merged_data2$out.electricity.cooling_fans_pumps.energy_consumption
+# Water heating
+merged_data2$out.water_heating.energy_consumption <- merged_data2$out.electricity.hot_water.energy_consumption +
+  merged_data2$out.natural_gas.hot_water.energy_consumption +
+  merged_data2$out.propane.hot_water.energy_consumption +
+  merged_data2$out.fuel_oil.hot_water.energy_consumption
+# Electrical appliances
+merged_data2$out.electrical_appliances.energy_consumption <- merged_data2$out.electricity.lighting_exterior.energy_consumption +
+  merged_data2$out.electricity.lighting_interior.energy_consumption +
+  merged_data2$out.electricity.lighting_garage.energy_consumption +
+  merged_data2$out.electricity.plug_loads.energy_consumption +
+  merged_data2$out.electricity.mech_vent.energy_consumption +
+  merged_data2$out.electricity.ceiling_fan.energy_consumption +
+  merged_data2$out.natural_gas.lighting.energy_consumption
+# Outdoor appliances
+merged_data2$out.outdoor_appliances.energy_consumption <- merged_data2$out.electricity.hot_tub_heater.energy_consumption +
+  merged_data2$out.electricity.hot_tub_pump.energy_consumption +
+  merged_data2$out.electricity.pool_heater.energy_consumption +
+  merged_data2$out.electricity.pool_pump.energy_consumption +
+  merged_data2$out.natural_gas.hot_tub_heater.energy_consumption +
+  merged_data2$out.natural_gas.pool_heater.energy_consumption +
+  merged_data2$out.electricity.well_pump.energy_consumption
+# renewable_energy
+merged_data2$out.renewable_energy.energy_consumption <- merged_data2$out.electricity.pv.energy_consumption
+# total_energy_consumption
+merged_data2$out.total.energy_consumption <- merged_data2$out.electricity.range_oven.energy_consumption +
+  merged_data2$out.electricity.dishwasher.energy_consumption +
+  merged_data2$out.electricity.refrigerator.energy_consumption +
+  merged_data2$out.electricity.freezer.energy_consumption +
+  merged_data2$out.natural_gas.range_oven.energy_consumption +
+  merged_data2$out.natural_gas.grill.energy_consumption +
+  merged_data2$out.propane.range_oven.energy_consumption +
+  merged_data2$out.electricity.clothes_dryer.energy_consumption +
+  merged_data2$out.natural_gas.clothes_dryer.energy_consumption +
+  merged_data2$out.propane.clothes_dryer.energy_consumption +
+  merged_data2$out.electricity.clothes_washer.energy_consumption +
+  merged_data2$out.electricity.heating_fans_pumps.energy_consumption +
+  merged_data2$out.electricity.heating_hp_bkup.energy_consumption +
+  merged_data2$out.electricity.heating.energy_consumption +
+  merged_data2$out.natural_gas.heating_hp_bkup.energy_consumption +
+  merged_data2$out.natural_gas.heating.energy_consumption +
+  merged_data2$out.propane.heating_hp_bkup.energy_consumption +
+  merged_data2$out.propane.heating.energy_consumption +
+  merged_data2$out.fuel_oil.heating.energy_consumption +
+  merged_data2$out.fuel_oil.heating_hp_bkup.energy_consumption
+```
+
+```{r}
+# Create a new vector with all the required columns
+column_names <- c(
+"time", 
+"Dry Bulb Temperature [°C]", 
+"Relative Humidity [%]", 
+"Wind Speed [m/s]", 
+"Wind Direction [Deg]",
+"Global Horizontal Radiation [W/m2]",
+"Direct Normal Radiation [W/m2]",
+"Diffuse Horizontal Radiation [W/m2]",
+"out.kitchen_energy_consumption",
+"out.heating_cooling.energy_consumption",
+"out.water_heating.energy_consumption",
+"out.electrical_appliances.energy_consumption",
+"out.renewable_energy.energy_consumption",
+"out.total.energy_consumption")
+```
+
+```{r}
+# create subset using the building IDs and column names required from merged energy and weather
+subset1 <- subset(merged_data2,bldg_id %in% building_id_req,
+select = c("bldg_id", column_names))  
+#View(subset1)
+```
+
+```{r}
+# create subset of static house with required building id and columns from static house
+subset2 <- subset(static_house, bldg_id %in% building_id_req,                   
+select = c("bldg_id", "in.has_pv","in.bedrooms","in.geometry_attic_type","in.building_america_climate_zone","in.windows","in.sqft","in.geometry_wall_type","in.city","in.heating_fuel"))
+#view(subset2)
+```
+
+```{r}
+# Merging subset 1 and subset 2 by building id
+merge_subset <-merge(subset1, subset2, by = "bldg_id") 
+#View(merge_subset)
+sum(is.na(merge_subset))
+#str(merge_subset)
+```
+
+```{r}
+# Using POSIXct format for 'time' column to ensure accurate date-time handling
+merge_subset$time <- as.POSIXct(merge_subset$time) 
+# Create a new column 'month' by extracting the month from the 'time' column
+merge_subset$month <- format(merge_subset$time, "%m") 
+# Filter the data to include only entries from July
+july_subset <- merge_subset[merge_subset$month == "07", ] 
+# Remove the 'month' column if it's no longer required
+july_subset$month <- NULL 
+# Display the July data subset
+#view(july_subset) 
+
+```
+
+```{r}
+# Creating subset to be used for modelling
+model_subset <- july_subset %>% 
+  select(-time, -bldg_id,-out.kitchen_energy_consumption,-out.heating_cooling.energy_consumption,-out.water_heating.energy_consumption,-out.electrical_appliances.energy_consumption,-out.renewable_energy.energy_consumption)
+
+```
+
+```{r}
+# linear regression model
+model <- lm(out.total.energy_consumption ~ ., data = model_subset)
+
+# View summary of the model
+summary(model)
+
+# Calclating RMSE Value
+actual_values <- model_subset$out.total.energy_consumption
+residuals <- actual_values - predictions
+
+# Calculate RMSE
+rmse <- sqrt(mean(residuals^2, na.rm = TRUE))
+
+# Print RMSE
+print(paste("RMSE:", round(rmse, 2)))
+
+# Calculate minimum and maximum of total energy consumption for illustration
+min_value <- min(model_subset$out.total.energy_consumption, na.rm = TRUE)
+max_value <- max(model_subset$out.total.energy_consumption, na.rm = TRUE)
+
+print(paste("Minimum Value:", min_value))
+print(paste("Maximum Value:", max_value))
+```
+
+
+
+```{r}
+# Create a new dataframe by copying the July subset 
+increased_temp_model_subset <- model_subset 
+# Increase the Dry Bulb Temperature column by 5 degrees Celsius 
+increased_temp_model_subset$out.total.energy_consumption <- increased_temp_model_subset$out.total.energy_consumption + 5 
+# View the first few rows of the new dataframe 
+head(increased_temp_model_subset)
+```
+
+
+```{r}
+# Training data for model whoch contains data of all months
+model_merge_subset <- merge_subset %>%
+select(-time, -bldg_id,-out.kitchen_energy_consumption,-out.heating_cooling.energy_consumption,-out.water_heating.energy_consumption,-out.electrical_appliances.energy_consumption,-out.renewable_energy.energy_consumption, -month)
+```
+
+```{r}
+# Running linear regression for increased temperature
+set.seed(100)
+# Making sure out.total.energy_consumption is numeric
+model_merge_subset$out.total.energy_consumption <- as.numeric(model_merge_subset$out.total.energy_consumption)
+increased_temp_model_subset$out.total.energy_consumption <- as.numeric(increased_temp_model_subset$out.total.energy_consumption)
+
+# Train the linear regression model on the training data.
+lm_model <- lm(out.total.energy_consumption ~ . , data = model_merge_subset)
+
+# If you need the model summary uncomment the next line
+# summary(lm_model)
+
+# Predict on the testing data using the trained model.
+# Using increased_temp_model_subset as testing data for prediction
+predictions <- predict(lm_model, newdata = increased_temp_model_subset)
+
+# Calculate residuals and RMSE, ensuring you have actual values to compare against.
+# Let's assume you're using the original data's consumption as actual values for simplicity.
+actual_values <- increased_temp_model_subset$out.total.energy_consumption
+residuals <- actual_values - predictions
+
+# Calculate RMSE
+rmse <- sqrt(mean(residuals^2, na.rm = TRUE))
+
+# Print RMSE
+print(paste("RMSE:", round(rmse, 2)))
+
+# Calculate minimum and maximum of total energy consumption for illustration
+min_value <- min(model_merge_subset$out.total.energy_consumption, na.rm = TRUE)
+max_value <- max(model_merge_subset$out.total.energy_consumption, na.rm = TRUE)
+
+print(paste("Minimum Value:", min_value))
+print(paste("Maximum Value:", max_value))
+
+
+```
+
+```{r}
+# SVM model
+# Ensure dry bulb temperature is numeric
+model_merge_subset$out.total.energy_consumption <- as.numeric(model_merge_subset$out.total.energy_consumption)
+model_subset$out.total.energy_consumption<- as.numeric(model_subset$out.total.energy_consumption)
+
+# Train the SVM model
+svm_model <- svm(out.total.energy_consumption ~ ., data = model_merge_subset, method = "C-classification", kernel = "radial")
+
+# Predict on the test set
+predictions <- predict(svm_model, model_subset)
+
+# Calculate Mean Squared Error
+mse <- mean((predictions - model_subset$out.total.energy_consumption)^2)
+print(paste("Mean Squared Error:", mse))
+
+# Tuning the model parameters
+tune_results <- tune(svm, train.x = out.total.energy_consumption ~ ., data = model_merge_subset,
+                     kernel = "radial",
+                     ranges = list(cost = 10^(-1:2), gamma = 10^(-2:1)))
+
+# Best model from tuning
+best_model <- tune_results$best.model
+
+# Predict with the best model
+best_predictions <- predict(best_model, model_subset)
+
+# Recalculate MSE for the best model
+best_mse <- mean((best_predictions - model_subset$out.total.energy_consumption)^2)
+print(paste("Best Mean Squared Error:", best_mse))
+
+accuracy_svm <- confusionMatrix(best_predictions, model_subset$out.total.energy_consumption)
+
+```
+
+```{r}
+# Random forest model
+# Ensure out.total.energy_consumption is numeric if it's not already
+model_merge_subset$out.total.energy_consumption <- as.numeric(model_merge_subset$out.total.energy_consumption)
+model_subset$out.total.energy_consumption <- as.numeric(model_subset$out.total.energy_consumption)
+
+# Train the Random Forest model
+# Adjust the number of trees (ntree) and the number of variables at each split (mtry) based on your specific needs
+rf_model <- randomForest(out.total.energy_consumption ~ ., data = model_merge_subset, ntree = 500, mtry = sqrt(ncol(model_merge_subset)))
+
+# Predict on the test set
+predictions <- predict(rf_model, model_subset)
+
+# Calculate Mean Squared Error for model evaluation
+mse <- mean((predictions - model_subset$out.total.energy_consumption)^2)
+print(paste("Mean Squared Error:", mse))
+
+accuracy_rf <- confusionMatrix(predictions, model_subset$out.total.energy_consumption)
+
+```
+
+```{r}
+# Scatterplot of Dry Bulb Temperature vs. Total Energy Consumption
+ggplot(july_subset, aes(x = `Dry Bulb Temperature [°C]`, y = out.total.energy_consumption)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(x = "Dry Bulb Temperature (°C)", y = "Total Energy Consumption") +
+  ggtitle("Scatterplot of Dry Bulb Temperature vs. Total Energy Consumption")
+
+# Time series plot for Total Energy Consumption Over Time
+ggplot(merge_subset, aes(x = time, y = `out.total.energy_consumption`)) +
+  geom_line(group = 1, color = "coral") +
+  labs(title = "Total Energy Consumption Over Time", x = "Time", y = "Energy Consumption (kWh)")
+
+# Calculate average energy consumption by month
+average_monthly_energy <- merge_subset %>%
+  group_by(month) %>%
+  summarise(Average_Energy = mean(`out.total.energy_consumption`, na.rm = TRUE)) %>%
+  ungroup()
+
+# Create a bar chart for Average Energy Consumption by Mont
+ggplot(average_monthly_energy, aes(x = month, y = Average_Energy, fill = month)) +
+  geom_bar(stat = "identity") +
+  scale_fill_brewer(palette = "Set3") +
+  labs(title = "Average Energy Consumption by Month", 
+       x = "Month", 
+       y = "Average Energy Consumption (kWh)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+# Convert 'hour' to numeric if it's a factor or character
+merge_subset$hour <- as.numeric(format(merge_subset$time, "%H"))
+
+# Now recompute the hourly_energy data frame
+hourly_energy <- merge_subset %>%
+  group_by(hour) %>%
+  summarise(Average_Energy = mean(`out.total.energy_consumption`, na.rm = TRUE)) %>%
+  ungroup()
+
+# Create a line chart for Average Energy Consumption by Hour of Day
+ggplot(hourly_energy, aes(x = hour, y = Average_Energy, group = 1)) +
+  geom_line(color = "steelblue", linewidth = 1) + # Changed 'size' to 'linewidth'
+  geom_point(color = "darkblue", size = 2) +
+  scale_x_continuous(breaks = 0:23, labels = 0:23) +
+  labs(title = "Average Energy Consumption by Hour of Day", 
+       x = "Hour of Day", 
+       y = "Average Energy Consumption (kWh)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+```
+
+
