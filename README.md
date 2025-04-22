@@ -1,22 +1,22 @@
 ## ⚡ Energy Usage & Savings Project
-📌 Tools Used: R, Python, Shiny, ggplot2, caret, Random Forest, SVM, Multiple Linear Regression
-📁 Dataset: eSC Energy Usage Data (Building Characteristics, Energy Consumption, Weather Data)
-📈 Goal: Predict energy usage patterns and propose strategies to reduce peak energy demand, particularly during the summer months.
+📌 **Tools Used**: R, Python, Shiny, ggplot2, caret, Random Forest, SVM, Multiple Linear Regression
+📁 **Dataset**: eSC Energy Usage Data (Building Characteristics, Energy Consumption, Weather Data)
+📈 **Goal**: Predict energy usage patterns and propose strategies to reduce peak energy demand, particularly during the summer months.
 
 ## 📊 Project Overview
 This project focuses on analyzing and forecasting energy consumption patterns to help optimize energy usage and reduce peak energy demand. We used multiple predictive modeling techniques and a Shiny app to explore how different factors impact energy consumption, especially during the peak month of July.
 
 ## Tasks Performed:
 
-Data cleaning: Addressed missing values, negative entries, and other data issues.
+**Data cleaning**: Addressed missing values, negative entries, and other data issues.
 
-Data transformation: Aggregated energy consumption data for household categories (e.g., kitchen, laundry, HVAC).
+**Data transformation**: Aggregated energy consumption data for household categories (e.g., kitchen, laundry, HVAC).
 
-Feature engineering: Used weather data, building characteristics, and energy consumption for prediction models.
+**Feature engineering**: Used weather data, building characteristics, and energy consumption for prediction models.
 
-Model training: Applied Multiple Linear Regression (MLR), Support Vector Machine (SVM), and Random Forest (RF) models to predict energy consumption for July.
+**Model training**: Applied Multiple Linear Regression (MLR), Support Vector Machine (SVM), and Random Forest (RF) models to predict energy consumption for July.
 
-Model performance comparison: Evaluated models using performance metrics such as R-squared, RMSE, and MSE.
+**Model performance comparison**: Evaluated models using performance metrics such as R-squared, RMSE, and MSE.
 
 ## 🧠 Key Features Engineered
 Building Characteristics: Data on building size, insulation, and climate zone.
